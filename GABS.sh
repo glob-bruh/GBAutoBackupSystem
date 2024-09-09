@@ -4,71 +4,118 @@
 # GABS #
 ########
 # GlobBruh Automated Backup System
-# GlobBruh, 2023
-# Version 1.0
+# GlobBruh, 2024
 # This script MUST be ran as root, or it must be called by a root crontab.
 
-echo "================================"
-echo "=             GABS             ="
-echo "= (Formerly GBUS-R&I and GBBS) ="
-echo "================================"
+echo "================="
+echo "=      GABS     ="
+echo "= Version 2.0.0 ="
+echo "================="
 
-# Parameters:
-BACKUPDISKUUID=$1 # Disk UUID of the backup drive.
-BACKUPMOUNTPATH=$2 # The path where the backup disk from above should be mounted.
-SOURCERUNNINGPATH=$3 # Path where files should be checked from.
-BACKUPDESTINATIONPATH=$4 # Path where the files being backed up should go.
-BACKUPCONFIG=$5 # Should configuration files be backed up? Only takes "true" or "false".
+# Delete this warning after final tests pass and before merge into main.
+echo ""
+echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+echo "! ! ! !                           WARNING:                           ! ! ! !"
+echo "! ! ! !                UNTESTED DEVELOPMENT VERSION                  ! ! ! !"
+echo "! ! ! ! Absolutely do NOT use this version in production enviroments ! ! ! !"
+echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+echo ""
 
+splitText() {
+    IFS=$3
+    read -ra strArray <<< "$1"
+    echo "${strArray[$2]}"
+}
 
-todayDate=$(date +%b-%d-%Y)
-echo "*** GABS LOG FILE FOR $todayDate ***" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-echo "Parameters: $BACKUPDISKUUID - $BACKUPMOUNTPATH - $SOURCERUNNINGPATH - $BACKUPDESTINATIONPATH - $BACKUPCONFIG"
-echo "[$(date)] ### ---- Parameter Log Start ---- ###" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-echo "[$(date)] Drive $BACKUPDISKUUID mounts to $BACKUPMOUNTPATH." >> /var/log/gbbs/gbbsLog-$todayDate.txt
-echo "[$(date)] New files from $SOURCERUNNINGPATH are copied to $BACKUPDESTINATIONPATH." >> /var/log/gbbs/gbbsLog-$todayDate.txt
-if [ $BACKUPCONFIG == "true" ]; then
-	echo "[$(date)] Configuration files will be copied" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-else
-	echo "[$(date)] Configuration files will NOT be copied" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-fi
-echo "[$(date)] ### ---- Parameter Log End ---- ###" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-mountout=$(mount -t ext4 UUID=$BACKUPDISKUUID $BACKUPMOUNTPATH 2>&1)
-if [ $? -eq 0 ]; then
-	echo "Mount Success..."
-	echo "[$(date)] Drive Mounted Success." >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	sleep 10
-	rsync -av --delete $SOURCERUNNINGPATH $BACKUPDESTINATIONPATH --log-file /var/log/gbbs/rsyncLOG.txt
-	rsyncstat=$?
-	echo "[$(date)] ### --- RSync Log Start --- ###" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	cat /var/log/gbbs/rsyncLOG.txt >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	echo "[$(date)] ### ---- RSync Log End ---- ###" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	rm /var/log/gbbs/rsyncLOG.txt
-	echo "[$(date)] RSync Exit Status: $(echo $rsyncstat)." >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	if [ $BACKUPCONFIG == "true" ]; then
-		echo "Copy operations..."
-		# Add locations to your own configs here!
-		cp /etc/ssh/banner.txt ${BACKUPMOUNTPATH}Configs/OpenSSH/
-		cp /etc/ssh/sshd_config ${BACKUPMOUNTPATH}Configs/OpenSSH/
-		cp /etc/vsftpd.conf ${BACKUPMOUNTPATH}Configs/VSFTPD/
-		cp /etc/openvpn/server.conf ${BACKUPMOUNTPATH}Configs/OpenVPN/
-	fi
-	sleep 10
-	umountout=$(umount $BACKUPMOUNTPATH 2>&1)
-	if [ $? -eq 0 ]; then
-		echo "Unmount Success..."
-		echo "[$(date)] Drive Unmounted Success." >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	else
-		echo "Unmount Fail! Check log."
-		echo "[$(date)] Drive Unmounted FAILURE! Please investigate!" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-		echo "[$(date)] UMOUNT output: $(echo $umountout)" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	fi
-else
-	echo "[$(date)] Drive Mount FAILURE!" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	echo "[$(date)] MOUNT output: $(echo $mountout)" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-	echo "MOUNT DIDNT RETURN 0, not performing backup for this drive!"
-fi
-echo "[$(date)] All done!" >> /var/log/gbbs/gbbsLog-$todayDate.txt
-echo "-------------"
-echo "- All done! -"
-echo "-------------"
+showHelp() {
+    echo "---------------"
+    echo "GABS HELP PAGE:"
+    echo "---------------"
+    echo ""
+    echo "Project Page: https://github.com/glob-bruh/GBAutoBackupSystem"
+    echo ""
+    echo "Syntax: GABS.sh [-s] <script path> [-F] [-h]"
+    echo "Options:"
+    echo "h - Show this help screen."
+    echo "s - Specify script path."
+    echo "F - Force, run script without checking for errors."
+    echo "    VERY DANGEROUS, Use with extreme caution."
+    echo ""
+    echo "Scripting Syntax:"
+    echo "Instead of using command line arguments, GABS now relies on scripts for backing up content."
+    echo ""
+    echo "Created by GlobBruh - (c) 2024 "
+    echo ""
+}
+
+printHelp=0
+while getopts ":hs:" CommandFlags
+do
+    case "${CommandFlags}" in
+		# Parameters:
+        h) showHelp ; exit;;
+        s) scriptPath=${OPTARG};;
+        *) echo "ERROR: Invalid option! Try running 'GABS.sh -h' to view help." ; exit;;
+	esac
+done
+logFilename="/dev/null"
+while IFS= read -r lineInFile; do
+    inputDeterminingWord=$(splitText "$lineInFile" 0 " ")
+    case $inputDeterminingWord in
+        "FILECHKCPY")
+            targPath=$(splitText "$lineInFile" 1 " ")
+            destPath=$(splitText "$lineInFile" 2 " ")
+            echo "I will check and copy from $targPath to $destPath."
+        	rsync -av --delete $targPath $destPath --log-file /tmp/gabsRsyncLog.txt
+        	rsyncstat=$?
+        	echo "[$(date)] ### --- RSync Log Start --- ###" >> $logFilename
+        	cat /tmp/gabsRsyncLog.txt >> $logFilename
+        	echo "[$(date)] ### ---- RSync Log End ---- ###" >> $logFilename
+        	rm /tmp/gabsRsyncLog.txt
+        	echo "[$(date)] RSync Exit Status: $(echo $rsyncstat)." >> $logFilename
+            sleep 7
+            ;;
+        "MOUNTDRIVE")
+            diskToMountUUID=$(splitText "$lineInFile" 1 " ")
+            diskPathToMount=$(splitText "$lineInFile" 2 " ")
+            echo "I will mount disk $diskToMountUUID to $diskPathToMount."
+            mountout=$(mount -t ext4 UUID=$diskToMountUUID $diskPathToMount 2>&1)
+            if [ $? -eq 0 ]; then
+                echo "Mount Success..."
+                echo "[$(date)] Drive $diskToMountUUID Mounted Success." >> $logFilename
+                sleep 7
+            else
+            	echo "[$(date)] Drive $diskToMountUUID Mount FAILURE! Script was aborted! Please investigate!" >> $logFilename
+    	        echo "[$(date)] MOUNT output: $(echo $mountout)" >> $logFilename
+	            echo "MOUNT DIDNT RETURN 0, aborting!" ; exit
+            fi
+            ;;
+        "REPORTERSP")
+            logFilename="/dev/null"
+            echo "Logging has been stopped."
+            ;;
+        "REPORTERST")
+            pathToLog=$(splitText "$lineInFile" 1 " ")
+            todayDate=$(date +%b-%d-%Y_%H-%M-%S)
+            logFilename="${pathToLog}/gabsLog-${todayDate}.log"
+            echo "*** GABS LOG FILE FOR $todayDate ***" >> $logFilename
+            echo "We will now log to $logFilename."
+            ;;
+        "UNMOUNTDRV")
+            diskToUnmount=$(splitText "$lineInFile" 1 " ")
+	        umountout=$(umount $diskToUnmount 2>&1)
+	        if [ $? -eq 0 ]; then
+	        	echo "Unmount Success..."
+	        	echo "[$(date)] Drive at $diskToUnmount Unmounted Success." >> $logFilename
+	        else
+	        	echo "Unmount Fail! Check log."
+	        	echo "[$(date)] Drive at $diskToUnmount Unmounted FAILURE! Script was aborted! Please investigate!" >> $logFilename
+	        	echo "[$(date)] UMOUNT output: $(echo $umountout)" >> $logFilename ; exit
+	        fi
+            ;;
+        "VMMODETYPE")
+            virtualMachineMode=$(splitText "$lineInFile" 1 " ")
+            echo "I will only use $virtualMachineMode-based commands when running VM control commands."
+            ;;
+    esac
+done < $scriptPath
