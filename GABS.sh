@@ -13,13 +13,16 @@ echo "= Version 2.0.0 ="
 echo "================="
 
 # Delete this warning after final tests pass and before merge into main.
-echo ""
-echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-echo "! ! ! !                           WARNING:                           ! ! ! !"
-echo "! ! ! !                UNTESTED DEVELOPMENT VERSION                  ! ! ! !"
-echo "! ! ! ! Absolutely do NOT use this version in production enviroments ! ! ! !"
-echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-echo ""
+REDTEXT='\033[0;31m'
+NOCOLOR='\033[0m'
+echo -e ""
+echo -e "${REDTEXT}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+echo -e "${REDTEXT}! ! ! !                           WARNING:                            ! ! ! !"
+echo -e "${REDTEXT}! ! ! !                      PROTOTYPE VERSION                        ! ! ! !"
+echo -e "${REDTEXT}! ! ! ! Absolutely do NOT use this version in production enviroments. ! ! ! !"
+echo -e "${REDTEXT}! ! ! !        As stated by GPL3, I am not liable for damages.        ! ! ! !"
+echo -e "${REDTEXT}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+echo -e "${NOCOLOR}"
 
 splitText() {
     IFS=$3
@@ -31,6 +34,10 @@ showHelp() {
     echo "---------------"
     echo "GABS HELP PAGE:"
     echo "---------------"
+    if [ "$EUID" -ne 0 ] ; then
+        echo ""
+        echo "Note that this script has to be ran as root."
+    fi
     echo ""
     echo "Project Page: https://github.com/glob-bruh/GBAutoBackupSystem"
     echo ""
@@ -43,29 +50,38 @@ showHelp() {
     echo ""
     echo "Scripting Syntax:"
     echo "Instead of using command line arguments, GABS now relies on scripts for backing up content."
+    echo "Please see GABSManual.txt for more info."
     echo ""
     echo "Created by GlobBruh - (c) 2024 "
     echo ""
 }
 
-printHelp=0
-while getopts ":hs:" CommandFlags
-do
+vboxGetVMState() {
+    x=$(sudo -u "$vmUserToRunAs" vboxmanage showvminfo "$1" --machinereadable)
+    x=$(echo "$x" | grep "VMState=")
+    x=$(splitText "$x" 1 "=")
+    z=$(splitText $x 1 '"')
+    echo $z
+}
+
+if [ "$EUID" -ne 0 ] ; then
+    echo "This script must be ran as root!" ; exit
+fi
+while getopts ":hs:" CommandFlags ; do
     case "${CommandFlags}" in
-		# Parameters:
         h) showHelp ; exit;;
         s) scriptPath=${OPTARG};;
         *) echo "ERROR: Invalid option! Try running 'GABS.sh -h' to view help." ; exit;;
 	esac
 done
 logFilename="/dev/null"
-while IFS= read -r lineInFile; do
+while IFS= read -r lineInFile ; do
     inputDeterminingWord=$(splitText "$lineInFile" 0 " ")
     case $inputDeterminingWord in
-        "FILECHKCPY")
+        "FLDRCHKCPY")
             targPath=$(splitText "$lineInFile" 1 " ")
             destPath=$(splitText "$lineInFile" 2 " ")
-            echo "I will check and copy from $targPath to $destPath."
+            echo "[$(date)] RSync - Copy NEW files from $targPath to $destPath." >> $logFilename
         	rsync -av --delete $targPath $destPath --log-file /tmp/gabsRsyncLog.txt
         	rsyncstat=$?
         	echo "[$(date)] ### --- RSync Log Start --- ###" >> $logFilename
@@ -78,44 +94,86 @@ while IFS= read -r lineInFile; do
         "MOUNTDRIVE")
             diskToMountUUID=$(splitText "$lineInFile" 1 " ")
             diskPathToMount=$(splitText "$lineInFile" 2 " ")
-            echo "I will mount disk $diskToMountUUID to $diskPathToMount."
             mountout=$(mount -t ext4 UUID=$diskToMountUUID $diskPathToMount 2>&1)
             if [ $? -eq 0 ]; then
-                echo "Mount Success..."
+                echo "Mount Success."
                 echo "[$(date)] Drive $diskToMountUUID Mounted Success." >> $logFilename
                 sleep 7
             else
             	echo "[$(date)] Drive $diskToMountUUID Mount FAILURE! Script was aborted! Please investigate!" >> $logFilename
     	        echo "[$(date)] MOUNT output: $(echo $mountout)" >> $logFilename
-	            echo "MOUNT DIDNT RETURN 0, aborting!" ; exit
+                echo "MOUNT DIDNT RETURN 0! Mount Fail, aborting and please check log!" ; exit
             fi
             ;;
         "REPORTERSP")
+            echo "Logging stopped."
             logFilename="/dev/null"
-            echo "Logging has been stopped."
             ;;
         "REPORTERST")
+            echo "Logging started."
             pathToLog=$(splitText "$lineInFile" 1 " ")
             todayDate=$(date +%b-%d-%Y_%H-%M-%S)
             logFilename="${pathToLog}/gabsLog-${todayDate}.log"
             echo "*** GABS LOG FILE FOR $todayDate ***" >> $logFilename
-            echo "We will now log to $logFilename."
             ;;
         "UNMOUNTDRV")
             diskToUnmount=$(splitText "$lineInFile" 1 " ")
 	        umountout=$(umount $diskToUnmount 2>&1)
 	        if [ $? -eq 0 ]; then
-	        	echo "Unmount Success..."
+	        	echo "Unmount Success."
 	        	echo "[$(date)] Drive at $diskToUnmount Unmounted Success." >> $logFilename
+                sleep 7
 	        else
-	        	echo "Unmount Fail! Check log."
 	        	echo "[$(date)] Drive at $diskToUnmount Unmounted FAILURE! Script was aborted! Please investigate!" >> $logFilename
-	        	echo "[$(date)] UMOUNT output: $(echo $umountout)" >> $logFilename ; exit
+	        	echo "[$(date)] UMOUNT output: $(echo $umountout)" >> $logFilename
+                echo "UMOUNT DIDNT RETURN 0! Unount Fail, aborting and please check log!" ; exit
 	        fi
+            ;;
+        "VMCLOSESYS")
+            vmToClose=$(splitText "$lineInFile" 1 " ")
+            vmStopType=$(splitText "$lineInFile" 2 " ")
+            echo "Close VM ${vmToClose}."
+            case "${virtualMachineMode}" in
+                "vbox")
+                    case "$vmStopType" in
+                        "pause") sudo -u "$vmUserToRunAs" vboxmanage controlvm "$vmToClose" pause;;
+                        "save")  sudo -u "$vmUserToRunAs" vboxmanage controlvm "$vmToClose" savestate;;
+                        "acpi")
+                            sudo -u "$vmUserToRunAs" vboxmanage controlvm "$vmToClose" acpipowerbutton
+                            while [ $(vboxGetVMState $vmToClose) != "poweroff" ] ; do 
+                                sleep 5
+                            done
+                            ;;
+                    esac
+                    ;;
+                "kvm")
+                    echo "NOT IMPLEMENTED YET! Aborting for safety." ; exit
+                    ;;
+            esac
             ;;
         "VMMODETYPE")
             virtualMachineMode=$(splitText "$lineInFile" 1 " ")
-            echo "I will only use $virtualMachineMode-based commands when running VM control commands."
+            vmUserToRunAs=$(splitText "$lineInFile" 2 " ")
+            if [ -z "${vmUserToRunAs}" ] ; then
+                vmUserToRunAs=$USER
+            fi
+            echo "VM mgnt configured in ${virtualMachineMode} mode."
+            ;;
+        "VMSTARTSYS")
+            vmToStart=$(splitText "$lineInFile" 1 " ")
+            echo "Start VM ${vmToStart}."
+            case "${virtualMachineMode}" in
+                "vbox")
+                    case $(vboxGetVMState $vmToStart) in
+                        "paused")   sudo -u "$vmUserToRunAs" vboxmanage controlvm "$vmToStart" resume;;
+                        "poweroff") sudo -u "$vmUserToRunAs" vboxmanage startvm --type headless "$vmToStart";;
+                        "saved")    sudo -u "$vmUserToRunAs" vboxmanage startvm --type headless "$vmToStart";;
+                    esac
+                    ;;
+                "kvm")
+                    echo "NOT IMPLEMENTED YET! Aborting for safety." ; exit
+                    ;;
+            esac
             ;;
     esac
 done < $scriptPath
