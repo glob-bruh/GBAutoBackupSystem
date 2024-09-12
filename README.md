@@ -1,5 +1,7 @@
 # GlobBruh Automated Backup System (GABS)
 
+# This readme is outdated. Please see [GABS Manual](./doc/GABS-Manual.txt) for latest info.
+
 ## Preface:
 
 This script is designed to automatically replicate contents from one drive to another. Its original use is to have data replication without the use of RAID. 
