@@ -1,0 +1,95 @@
+#################
+#               #
+# GABS - Manual #
+#     2024      #
+#               #
+#################
+
+-------------
+GENERAL INFO:
+-------------
+
+GlobBruh Automated Backup System (GABS) is created by GlobBruh.
+
+GABS is licensed under the GNU General Public license v3. You should have received a copy of it.
+
+GABS project page: 
+https://github.com/glob-bruh/GBAutoBackupSystem
+
+-----------------------------
+INFORMATION ABOUT V2 REWRITE:
+-----------------------------
+
+The reason for the v2 rewrite came up when I began running VM servers. Its not safe to copy over VM's while they are running, and it seems
+like an unnecessary amount of work to make a bash script that called for GABS, then run said bash script from a cron. 
+The idea of having GABS be ran using custom scripts has always been a concept since day 1, and now it has actually come to fruition.
+
+-------
+SYNTAX:
+-------
+
+Scripts are built in a DISKPART-like basic-like language.
+
+FLDRCHKCPY:
+   - [Folder] [Ch]ec[k] [C]o[py]
+   - Checks a folder for files that have been modified and copies them over using RSYNC.
+   - FLDRCHKCPY [target path] [destination path]
+
+MOUNTDRIVE:
+   - [Mount] [Drive]
+   - Mounts a drive to the specified location.
+   - MOUNTDRIVE [disk uuid] [location to mount to]
+
+REPORTERSP:
+   - [Reporter] [S]to[p]
+   - Stops logging/reporter. 
+   - REPORTERSP (no extra params needed)
+
+REPORTERST:
+   - [Reporter] [S]tar[t]
+   - Starts the logging/reporter. Log is saved into specified directory. DO NOT specify a log filename, GABS will make its own. 
+   - REPORTERST [directory to save log]
+
+UNMOUNTDRV:
+   - [Unmount] [Dr]i[v]e
+   - Unmounts drive residing at the specified directory.
+   - UNMOUNTDRV [directory where drive is mounted]
+
+VMCLOSESYS:
+   - [V]irtual [M]achine [Close] [Sys]tem
+   - Stops the virtual machine of the name specified. Valid stop types are as follows:
+     - VBOX:
+       - pause - Pauses the system. This does not shutdown the system.
+       - acpi  - Performs an Advanced Configuration and Power Interface shutdown. Verify the system is able to be shutdown with ACPI if you use this!
+       - save  - Saves the machines state and closes it. This does not shutdown the system but is safer than pausing it.
+   - VMCLOSESYS [vm name] [stop type]
+
+VMMODETYPE:
+   - [V]irtual [M]achine [Mode] [Type]
+   - Tells the script what control commands to use based on which hypervisor to use. Acceptable hypervisors are as follows:
+     - vbox - Virtualbox
+     - kvm  - Linux KVM <-- Not supported yet; do not use!
+     The second parameter can be specified. Note that all VM management commands will run as this user. If you don't provide a
+     username, commands will be ran as the user in $USER (this is usually root).
+   - VMMODETYPE [hypervisor type] [username to run as]
+
+VMSTARTSYS:
+   - [V]irtual [M]achine [Start] [Sys]tem
+   - Starts/Resumes the virtual machine of the name specified. On VBOX all VM's will be started in headless mode. 
+   - VMSTARTSYS [vm name]
+
+------
+FAQ's:
+------
+
+Q) Why does FLDRCHKCPY, MOUNTDRIVE, and UNMOUNTDRV have 7 seconds sleeps/timeouts? 
+A) This is to avoid ANY potential issues or corruption from mounting/unmounting disks and copying over files too quickly. 
+
+Q) Why does VMCLOSESYS not have a poweroff mode?
+A) In most cases, poweroff is usually the equivalent as pulling the plug out of the computer. To deter this, it is recommended to use acpi instead.
+   This will usually act as if the power button on the computer was pressed. If you are unable to use acpi, use save, which will save and close the VM
+   without performing a shutdown.  
+
+--------------------
+GABS SCRIPT EXAMPLE:
+--------------------
